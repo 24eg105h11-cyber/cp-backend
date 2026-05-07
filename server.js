@@ -11,13 +11,16 @@ config();
 
 //create express app
 const app = exp();  
+// Collect frontend origin(s) from environment while supporting different env var names
+const rawFrontendEnv = [process.env.FRONTEND_URL, process.env.frontend_url, process.env.FRONTEND_URLS]
+  .filter(Boolean)
+  .join(",");
+const envFrontendUrls = rawFrontendEnv ? rawFrontendEnv.split(",").map((u) => u.trim()) : [];
+
 const allowedOrigins = [
   "http://localhost:5173",
   "https://cp-frontend-chi.vercel.app/",
-  process.env.FRONTEND_URL,
-  ...(process.env.FRONTEND_URLS || "")
-    .split(",")
-    .map((url) => url.trim()),
+  ...envFrontendUrls,
 ].filter(Boolean);
 
 const vercelPreviewPattern = /^https:\/\/cp11-[a-z0-9-]+-24eg105h11-cybers-projects\.vercel\.app$/;
@@ -60,6 +63,14 @@ const connectDB = async () => {
     app.listen(port, () => console.log(`server listening on ${port}..`));
   } catch (err) {
     console.log("err in db connect", err);
+    // In development allow the server to start even if DB connection fails
+    // so we can test CORS and other HTTP behavior quickly.
+    try {
+      const port = process.env.PORT || 5000;
+      app.listen(port, () => console.log(`server listening on ${port} (DB not connected)..`));
+    } catch (listenErr) {
+      console.log("Failed to start server after DB error:", listenErr);
+    }
   }
 };
 
