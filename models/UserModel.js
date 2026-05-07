@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose";
+
 const userSchema = new Schema(
   {
     firstName: {
@@ -23,7 +24,7 @@ const userSchema = new Schema(
       required: [true, "Invalid role"],
     },
     profileImageUrl: {
-      type: String,           
+      type: String,
     },
     isUserActive:{
         type:Boolean,

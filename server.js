@@ -9,72 +9,75 @@ import cookieParser from "cookie-parser";
 import cors from 'cors'
 config();
 
+let dbConnected = false;
+
 //create express app
-const app = exp();  
-// Collect frontend origin(s) from environment while supporting different env var names
-const rawFrontendEnv = [process.env.FRONTEND_URL, process.env.frontend_url, process.env.FRONTEND_URLS]
-  .filter(Boolean)
-  .join(",");
-const envFrontendUrls = rawFrontendEnv ? rawFrontendEnv.split(",").map((u) => u.trim()) : [];
-
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://cp-frontend-chi.vercel.app/",
-  ...envFrontendUrls,
-].filter(Boolean);
-
-const vercelPreviewPattern = /^https:\/\/cp11-[a-z0-9-]+-24eg105h11-cybers-projects\.vercel\.app$/;
-
-//enable cors
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow non-browser tools like Postman/cURL without Origin header.
-      if (!origin) {
-        return callback(null, true);
-      }
-
-      if (allowedOrigins.includes(origin) || vercelPreviewPattern.test(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error(`CORS blocked for origin: ${origin}`));
-    },
-    credentials: true,
-  }),
-);
+const app = exp();
+const allowedOrigins =
+  process.env.CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ||
+  [
+    "http://localhost:5173",
+    process.env.frontend_url,
+  ].filter(Boolean);
+// enable cors
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+}))
 //add cookie parser middeleware
 app.use(cookieParser())
 //body parser middleware
 app.use(exp.json());
+//connect to db
+const connectDB = async () => {
+  if (dbConnected) {
+    return;
+  }
+
+  try {
+    const mongoUri = process.env.DB_URL || process.env.MONGODB_URI;
+
+    if (!mongoUri) {
+      throw new Error("Missing DB_URL or MONGODB_URI");
+    }
+
+    await connect(mongoUri);
+    dbConnected = true;
+    console.log("DB server connected");
+  } catch (err) {
+    console.log("err in db connect", err);
+    throw err;
+  }
+};
+
+// In serverless environments, initialize DB lazily per request (cached by dbConnected)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 //path level middlewares
 app.use("/user-api", userApp);
 app.use("/author-api", authorApp);
 app.use("/admin-api", adminApp);
 app.use("/auth", commonApp);
 
-//connect to db
-const connectDB = async () => {
-  try {
-    await connect(process.env.DB_URL);
-    console.log("DB server connected");
-    //assign port
-    const port = process.env.PORT || 5000;
-    app.listen(port, () => console.log(`server listening on ${port}..`));
-  } catch (err) {
-    console.log("err in db connect", err);
-    // In development allow the server to start even if DB connection fails
-    // so we can test CORS and other HTTP behavior quickly.
-    try {
-      const port = process.env.PORT || 5000;
-      app.listen(port, () => console.log(`server listening on ${port} (DB not connected)..`));
-    } catch (listenErr) {
-      console.log("Failed to start server after DB error:", listenErr);
-    }
-  }
-};
-
-connectDB();
+if (process.env.VERCEL !== "1") {
+  connectDB()
+    .then(() => {
+      //assign port
+      const port = process.env.PORT || 4000;
+      app.listen(port, () => console.log(`server listening on ${port}..`));
+    })
+    .catch((err) => {
+      console.log("Failed to start server", err);
+      process.exit(1);
+    });
+}
 
 //to handle invalid path
 app.use((req, res, next) => {
@@ -109,3 +112,6 @@ app.use((err, req, res, next) => {
   //send server side error
   res.status(500).json({ message: "error occurred", error: "Server side error" });
 });
+
+export { app, connectDB };
+export default app;
